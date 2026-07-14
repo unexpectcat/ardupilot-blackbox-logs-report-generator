@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# Flight data and generated reports are personal outputs, not part of the tool
+*.BIN
+*.bin
+*.pdf
