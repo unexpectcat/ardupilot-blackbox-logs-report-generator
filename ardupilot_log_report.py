@@ -893,6 +893,9 @@ class ReportApp(tk.Tk):
         self.pages = []
         self.flags = []
         self.current_dir = find_sd_logs_dir() or os.path.expanduser("~")
+        # Default True: crop to the longest armed interval (flight-only debugging).
+        # Untick to benchmark/inspect the full merged log, armed or not.
+        self.crop_var = tk.BooleanVar(value=True)
 
         self._build_toolbar()
         self._build_notebook()
@@ -919,6 +922,9 @@ class ReportApp(tk.Tk):
         ttk.Button(bar, text="Open File(s)...", command=self.on_open).pack(side=tk.LEFT, padx=(6, 0))
         ttk.Button(bar, text="Save as PDF", command=self.on_save_pdf).pack(side=tk.LEFT, padx=(6, 0))
 
+        ttk.Checkbutton(bar, text="Crop to flight only (arm-disarm)", variable=self.crop_var,
+                        command=self.on_crop_toggle).pack(side=tk.LEFT, padx=(18, 0))
+
         ttk.Label(bar, text="Log:").pack(side=tk.LEFT, padx=(18, 4))
         self.log_choice = ttk.Combobox(bar, state="readonly", width=28)
         self.log_choice.pack(side=tk.LEFT)
@@ -938,8 +944,9 @@ class ReportApp(tk.Tk):
         self.notebook.add(frame, text="Start")
         msg = ("Click \"Select Folder...\" and choose the folder that contains your\n"
                "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder).\n\n"
-               "All .BIN files found there are merged into one timeline and cropped\n"
-               "to the longest continuous armed period.")
+               "All .BIN files found there are merged into one timeline. By default\n"
+               "it's cropped to the longest continuous armed period (flight-only); untick\n"
+               "\"Crop to flight only\" in the toolbar to benchmark the full log instead.")
         tk.Label(frame, text=msg, justify=tk.LEFT, fg=INK2, bg=SURFACE, font=("", 11)).pack(padx=30, pady=30, anchor="w")
 
     def on_select_folder(self):
@@ -1001,13 +1008,17 @@ class ReportApp(tk.Tk):
         if paths:
             self.load_log(sorted(paths, key=_log_number) if len(paths) > 1 else paths[0])
 
+    def on_crop_toggle(self):
+        if self.log is not None:
+            self.load_log(list(self.log.paths))
+
     def load_log(self, path_or_paths):
         paths = [path_or_paths] if isinstance(path_or_paths, str) else list(path_or_paths)
         label = f"{len(paths)} logs" if len(paths) > 1 else os.path.basename(paths[0])
         self.status_var.set(f"Parsing {label} ...")
         self.update_idletasks()
         try:
-            log = LogData(paths)
+            log = LogData(paths, crop_to_flight=self.crop_var.get())
             pages, flags = build_report(log)
         except Exception as exc:
             messagebox.showerror("Failed to parse log", str(exc))
