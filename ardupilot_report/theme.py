@@ -39,10 +39,13 @@ CHROME_THEMES = {
 }
 # Accent choices, each pulled straight from the validated categorical hues above
 # (never an invented color) and checked for >=3:1 contrast against both surfaces.
+# "Slate" is the neutral/no-hue option - a plain gray, for anyone who wants the
+# accent stripes without a color statement.
 ACCENT_THEMES = {
     "Ocean": {"light": "#2a78d6", "dark": "#3987e5"},
     "Ember": {"light": "#eb6834", "dark": "#d95926"},
     "Amethyst": {"light": "#4a3aa7", "dark": "#9085e9"},
+    "Slate": {"light": "#5f5e59", "dark": "#a6a49b"},
 }
 FONT_FAMILIES = {
     "Sans Serif": ("sans-serif", QFont.StyleHint.SansSerif),
@@ -93,39 +96,20 @@ def apply_chart_theme(mode, font_family="Sans Serif", font_size=9):
     })
 
 
-def _hex_to_rgb(hexcolor):
-    h = hexcolor.lstrip("#")
-    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
-
-
-def _blend(hex_a, hex_b, t):
-    """Blend hex_a toward hex_b by fraction t (0 = hex_a, 1 = hex_b)."""
-    ra, ga, ba = _hex_to_rgb(hex_a)
-    rb, gb, bb = _hex_to_rgb(hex_b)
-    r = round(ra + (rb - ra) * t)
-    g = round(ga + (gb - ga) * t)
-    b = round(ba + (bb - ba) * t)
-    return f"#{r:02x}{g:02x}{b:02x}"
-
-
 def build_stylesheet(mode, accent):
     """Qt stylesheet for the app chrome. Chart colors are untouched by this -
     only window/toolbar/tab/button/checkbox colors follow `mode` and `accent`."""
     c = CHROME_THEMES[mode]
-    # Tint the toolbar toward the accent so it reads as a distinct band from the
-    # tab content below, and so the "color scheme" choice is visible even with
-    # no log loaded. Blended (not translucent) so it stays a flat, predictable
-    # color regardless of what's underneath.
-    tint_t = 0.22 if mode == "light" else 0.30
-    toolbar_bg = _blend(c["panel"], accent, tint_t)
-    # A soft, neutral (not accent-colored) wash for hover states - blend the
-    # panel toward black on light surfaces / toward white on dark ones.
-    hover_bg = _blend(c["panel"], "#000000" if mode == "light" else "#ffffff", 0.08)
+    # No background tint on the toolbar - the accent instead shows as two plain
+    # 7px lines: one under the toolbar, one down the side of the report viewport.
+    # A flat, real-alpha black wash for hover states (not accent-colored),
+    # consistent in both modes since black-over-anything just darkens it a touch.
+    hover_bg = "rgba(0, 0, 0, 0.05)"
     return f"""
     QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
     QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                 spacing: 8px; padding: 6px; }}
-    QToolBar#mainToolbar {{ background: {toolbar_bg}; border-bottom: 2px solid {accent}; }}
+    QToolBar#mainToolbar {{ border-bottom: 7px solid {accent}; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; background: transparent; }}
     QPushButton {{ background: transparent; color: {c['ink']}; border: 1px solid transparent;
                    border-radius: 6px; padding: 6px 14px; }}
@@ -149,7 +133,8 @@ def build_stylesheet(mode, accent):
     QCheckBox::indicator:hover {{ background: {hover_bg}; }}
     QLabel {{ color: {c['ink2']}; background: transparent; }}
     QLabel#status {{ color: {c['ink2']}; padding-left: 8px; }}
-    QTabWidget::pane {{ border-top: 1px solid {c['border']}; background: {c['panel']}; }}
+    QTabWidget::pane {{ border-top: 1px solid {c['border']}; border-left: 7px solid {accent};
+                         background: {c['panel']}; }}
     QTabBar::tab {{ background: transparent; color: {c['ink2']}; padding: 8px 18px;
                     border-bottom: 2px solid transparent; }}
     QTabBar::tab:selected {{ color: {c['ink']}; border-bottom: 2px solid {accent}; font-weight: 600; }}
