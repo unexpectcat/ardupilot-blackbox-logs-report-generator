@@ -118,6 +118,9 @@ def build_stylesheet(mode, accent):
     # color regardless of what's underneath.
     tint_t = 0.22 if mode == "light" else 0.30
     toolbar_bg = _blend(c["panel"], accent, tint_t)
+    # A soft, neutral (not accent-colored) wash for hover states - blend the
+    # panel toward black on light surfaces / toward white on dark ones.
+    hover_bg = _blend(c["panel"], "#000000" if mode == "light" else "#ffffff", 0.08)
     return f"""
     QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
     QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
@@ -125,20 +128,25 @@ def build_stylesheet(mode, accent):
     QToolBar#mainToolbar {{ background: {toolbar_bg}; border-bottom: 2px solid {accent}; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; background: transparent; }}
     QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
-                   border-radius: 0; padding: 6px 14px; }}
-    QPushButton:hover {{ border: 1px solid {accent}; color: {accent}; }}
+                   border-radius: 6px; padding: 6px 14px; }}
+    QPushButton:hover {{ background: {hover_bg}; }}
     QPushButton:pressed {{ background: {accent}; color: white; }}
     QPushButton#stepBtn {{ padding: 4px 10px; font-weight: 600; }}
     QComboBox, QSpinBox {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
-                            border-radius: 0; padding: 4px 8px; min-height: 18px; }}
-    QComboBox:hover, QSpinBox:hover {{ border: 1px solid {accent}; }}
+                            padding: 4px 8px; min-height: 18px; }}
+    QSpinBox {{ border-radius: 6px; }}
+    QComboBox {{
+        border-top-left-radius: 6px; border-bottom-left-radius: 6px;
+        border-top-right-radius: 0; border-bottom-right-radius: 0;
+    }}
+    QComboBox:hover, QSpinBox:hover {{ background: {hover_bg}; }}
     QComboBox QAbstractItemView {{ background: {c['panel']}; color: {c['ink']}; selection-background-color: {accent};
                                     selection-color: white; outline: none; }}
     QCheckBox {{ color: {c['ink']}; spacing: 6px; background: transparent; }}
-    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border']}; border-radius: 0;
+    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border']}; border-radius: 3px;
                              background: {c['panel']}; }}
     QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent}; }}
-    QCheckBox::indicator:hover {{ border: 1px solid {accent}; }}
+    QCheckBox::indicator:hover {{ background: {hover_bg}; }}
     QLabel {{ color: {c['ink2']}; background: transparent; }}
     QLabel#status {{ color: {c['ink2']}; padding-left: 8px; }}
     QTabWidget::pane {{ border-top: 1px solid {c['border']}; background: {c['panel']}; }}
