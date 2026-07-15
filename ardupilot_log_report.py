@@ -902,12 +902,23 @@ class ReportApp(tk.Tk):
         self._show_placeholder()
 
         if initial_path:
-            if os.path.isdir(initial_path):
+            if isinstance(initial_path, list):
+                self.load_log(initial_path)
+            elif os.path.isdir(initial_path):
                 logs = discover_logs_in_dir(initial_path)
                 if logs:
                     self.load_log(logs if len(logs) > 1 else logs[0])
-            else:
+                else:
+                    messagebox.showerror("No logs found", f"No .BIN log files were found in:\n{initial_path}")
+            elif os.path.isfile(initial_path):
                 self.load_log(initial_path)
+            else:
+                messagebox.showerror(
+                    "Path not found",
+                    f"Could not find:\n{initial_path}\n\n"
+                    "If the folder or file name contains spaces, quote it, e.g.:\n"
+                    '  python3 ardupilot_log_report.py "path/with spaces/APM/LOGS"',
+                )
         else:
             # Nothing is auto-loaded from the filesystem: the user picks the
             # folder explicitly, so the tool never has to guess at (or silently
@@ -1086,8 +1097,34 @@ class ReportApp(tk.Tk):
                 pdf.savefig(fig)
 
 
+def _resolve_cli_path(argv):
+    """Recover a path argument from argv, tolerating shells that split an
+    unquoted folder/file name containing spaces into several argv entries
+    (e.g. a folder named "first flight ardu" typed without quotes).
+
+    Returns None (no args), a single path string, a list of path strings
+    (several explicit files given, to merge as one flight), or - if nothing
+    resolves - the best-guess joined string so the caller can report it.
+    """
+    args = argv[1:]
+    if not args:
+        return None
+    if len(args) == 1:
+        return args[0]
+
+    joined = os.path.expanduser(" ".join(args))
+    if os.path.exists(joined):
+        return joined
+
+    expanded = [os.path.expanduser(a) for a in args]
+    if all(os.path.exists(a) for a in expanded):
+        return expanded
+
+    return joined
+
+
 def main():
-    initial = sys.argv[1] if len(sys.argv) > 1 else None
+    initial = _resolve_cli_path(sys.argv)
     app = ReportApp(initial_path=initial)
     app.mainloop()
 
