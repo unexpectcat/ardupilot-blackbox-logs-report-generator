@@ -11,7 +11,7 @@ and a "Save as PDF" button.
 Usage:
     python3 ardupilot_log_report.py [path/to/log.BIN]
 
-Requirements: pymavlink, numpy, matplotlib (tkinter ships with most Python installs).
+Requirements: pymavlink, numpy, matplotlib, PySide6.
 """
 
 import os
@@ -20,51 +20,145 @@ import glob
 import datetime
 
 import numpy as np
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QToolBar, QPushButton,
+    QCheckBox, QComboBox, QLabel, QSpinBox, QTabWidget, QFileDialog,
+    QMessageBox,
+)
 
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("QtAgg")
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.backends.backend_pdf import PdfPages
 
 from pymavlink import mavutil
 
 
 # ---------------------------------------------------------------------------
-# Palette (validated categorical/status palette - see dataviz color-formula)
+# Palette / theming (validated categorical/status palette - see dataviz
+# color-formula & palette.md). Chart colors (categorical hues + status) are
+# frozen per light/dark mode - a surface adopts one theme and never mixes -
+# so only light/dark switches them. The "color scheme" picker only changes
+# the surrounding Qt chrome's accent color; it never touches chart data color.
 # ---------------------------------------------------------------------------
-HUE = {
-    "blue": "#2a78d6", "aqua": "#1baf7a", "yellow": "#eda100", "green": "#008300",
-    "violet": "#4a3aa7", "red": "#e34948", "magenta": "#e87ba4", "orange": "#eb6834",
+CHART_THEMES = {
+    "light": {
+        "ink": "#0b0b0b", "ink2": "#52514e", "muted": "#898781",
+        "grid": "#e1e0d9", "surface": "#fcfcfb",
+        "hue": {"blue": "#2a78d6", "aqua": "#1baf7a", "yellow": "#eda100", "green": "#008300",
+                "violet": "#4a3aa7", "red": "#e34948", "magenta": "#e87ba4", "orange": "#eb6834"},
+    },
+    "dark": {
+        "ink": "#ffffff", "ink2": "#c3c2b7", "muted": "#898781",
+        "grid": "#2c2c2a", "surface": "#1a1a19",
+        "hue": {"blue": "#3987e5", "aqua": "#199e70", "yellow": "#c98500", "green": "#008300",
+                "violet": "#9085e9", "red": "#e66767", "magenta": "#d55181", "orange": "#d95926"},
+    },
 }
+STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}  # fixed - never themed
 # Categorical order, reordered so low-contrast "yellow" (relief rule: needs a direct
 # label to read on the light surface) is not one of the first few lines in a busy chart.
-LINE_CATEGORICAL = [HUE[k] for k in ("blue", "aqua", "green", "violet", "red", "magenta", "orange", "yellow")]
-STATUS = {"good": "#0ca30c", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b"}
-INK, INK2, MUTED, GRID, SURFACE = "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#fcfcfb"
+CATEGORICAL_ORDER = ("blue", "aqua", "green", "violet", "red", "magenta", "orange", "yellow")
 
-plt.rcParams.update({
-    "figure.facecolor": SURFACE,
-    "axes.facecolor": SURFACE,
-    "savefig.facecolor": SURFACE,
-    "axes.edgecolor": MUTED,
-    "axes.labelcolor": INK2,
-    "text.color": INK,
-    "xtick.color": MUTED,
-    "ytick.color": MUTED,
-    "grid.color": GRID,
-    "axes.grid": True,
-    "grid.linewidth": 0.6,
-    "font.size": 9,
-    "axes.titlesize": 11,
-    "axes.titleweight": "bold",
-    "axes.spines.top": False,
-    "axes.spines.right": False,
-    "figure.figsize": (10, 7.5),
-})
+# Qt chrome (page plane / panel / border), from palette.md's chart-chrome-&-ink table.
+CHROME_THEMES = {
+    "light": {"page": "#f9f9f7", "panel": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e",
+              "muted": "#898781", "border": "rgba(11,11,11,0.14)"},
+    "dark": {"page": "#0d0d0d", "panel": "#1a1a19", "ink": "#ffffff", "ink2": "#c3c2b7",
+             "muted": "#898781", "border": "rgba(255,255,255,0.14)"},
+}
+# Accent choices, each pulled straight from the validated categorical hues above
+# (never an invented color) and checked for >=3:1 contrast against both surfaces.
+ACCENT_THEMES = {
+    "Ocean": {"light": "#2a78d6", "dark": "#3987e5"},
+    "Ember": {"light": "#eb6834", "dark": "#d95926"},
+    "Amethyst": {"light": "#4a3aa7", "dark": "#9085e9"},
+}
+FONT_FAMILIES = {
+    "Sans Serif": ("sans-serif", QFont.StyleHint.SansSerif),
+    "Serif": ("serif", QFont.StyleHint.Serif),
+    "Monospace": ("monospace", QFont.StyleHint.Monospace),
+    "Rounded": ("cursive", QFont.StyleHint.Cursive),
+}
+
+# Mutable "current" chart theme state - build_* functions below read these
+# module globals directly, so re-assigning them here and calling
+# apply_chart_theme() again is enough to re-theme every figure built after.
+HUE = dict(CHART_THEMES["light"]["hue"])
+LINE_CATEGORICAL = [HUE[k] for k in CATEGORICAL_ORDER]
+INK = INK2 = MUTED = GRID = SURFACE = None
+
+
+def apply_chart_theme(mode, font_family="Sans Serif", font_size=9):
+    """Re-point the module-level chart color/font globals at `mode` ("light"/"dark")
+    and push them into matplotlib's rcParams. Figures built after this call pick
+    up the new theme; already-built Figure objects do not change retroactively."""
+    global HUE, LINE_CATEGORICAL, INK, INK2, MUTED, GRID, SURFACE
+    theme = CHART_THEMES[mode]
+    HUE = dict(theme["hue"])
+    LINE_CATEGORICAL = [HUE[k] for k in CATEGORICAL_ORDER]
+    INK, INK2, MUTED, GRID, SURFACE = theme["ink"], theme["ink2"], theme["muted"], theme["grid"], theme["surface"]
+
+    mpl_family, _ = FONT_FAMILIES.get(font_family, FONT_FAMILIES["Sans Serif"])
+    plt.rcParams.update({
+        "figure.facecolor": SURFACE,
+        "axes.facecolor": SURFACE,
+        "savefig.facecolor": SURFACE,
+        "axes.edgecolor": MUTED,
+        "axes.labelcolor": INK2,
+        "text.color": INK,
+        "xtick.color": MUTED,
+        "ytick.color": MUTED,
+        "grid.color": GRID,
+        "axes.grid": True,
+        "grid.linewidth": 0.6,
+        "font.family": mpl_family,
+        "font.size": font_size,
+        "axes.titlesize": font_size + 2,
+        "axes.titleweight": "bold",
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "figure.figsize": (10, 7.5),
+    })
+
+
+def build_stylesheet(mode, accent):
+    """Qt stylesheet for the app chrome. Chart colors are untouched by this -
+    only window/toolbar/tab/button/checkbox colors follow `mode` and `accent`."""
+    c = CHROME_THEMES[mode]
+    return f"""
+    QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
+    QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
+                spacing: 8px; padding: 6px; }}
+    QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; }}
+    QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
+                   border-radius: 6px; padding: 6px 14px; }}
+    QPushButton:hover {{ border: 1px solid {accent}; color: {accent}; }}
+    QPushButton:pressed {{ background: {accent}; color: white; }}
+    QComboBox, QSpinBox {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
+                            border-radius: 6px; padding: 4px 8px; min-height: 18px; }}
+    QComboBox:hover, QSpinBox:hover {{ border: 1px solid {accent}; }}
+    QComboBox QAbstractItemView {{ background: {c['panel']}; color: {c['ink']}; selection-background-color: {accent};
+                                    selection-color: white; outline: none; }}
+    QCheckBox {{ color: {c['ink']}; spacing: 6px; }}
+    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border']}; border-radius: 3px;
+                             background: {c['panel']}; }}
+    QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent}; }}
+    QCheckBox::indicator:hover {{ border: 1px solid {accent}; }}
+    QLabel {{ color: {c['ink2']}; }}
+    QLabel#status {{ color: {c['ink2']}; padding-left: 8px; }}
+    QTabWidget::pane {{ border-top: 1px solid {c['border']}; background: {c['panel']}; }}
+    QTabBar::tab {{ background: transparent; color: {c['ink2']}; padding: 8px 18px;
+                    border-bottom: 2px solid transparent; }}
+    QTabBar::tab:selected {{ color: {c['ink']}; border-bottom: 2px solid {accent}; font-weight: 600; }}
+    QTabBar::tab:hover {{ color: {c['ink']}; }}
+    """
+
 
 MODE_MAPS = {
     "Plane": mavutil.mode_mapping_apm,
@@ -75,6 +169,8 @@ MODE_MAPS = {
 
 VIBE_WARN, VIBE_CRIT = 30.0, 60.0          # ArduPilot rule-of-thumb thresholds (m/s/s)
 BATT_WARN_CELL, BATT_CRIT_CELL = 3.5, 3.3  # volts/cell
+
+apply_chart_theme("light")  # establish rcParams defaults before any Figure is built
 
 
 def fmt_seconds(s):
@@ -883,22 +979,31 @@ def discover_logs_in_dir(directory):
 MERGED_LABEL = "All logs in folder (merged flight)"
 
 
-class ReportApp(tk.Tk):
+class ReportApp(QMainWindow):
     def __init__(self, initial_path=None):
         super().__init__()
-        self.title("ArduPilot Log Report")
-        self.geometry("1180x820")
+        self.setWindowTitle("ArduPilot Log Report")
+        self.resize(1320, 860)
 
         self.log = None
         self.pages = []
         self.flags = []
         self.current_dir = find_sd_logs_dir() or os.path.expanduser("~")
-        # Default True: crop to the longest armed interval (flight-only debugging).
-        # Untick to benchmark/inspect the full merged log, armed or not.
-        self.crop_var = tk.BooleanVar(value=True)
+        self._choice_dir = self.current_dir
+
+        # Appearance state: chart colors follow mode only (never the accent -
+        # a chart surface freezes one theme); accent/font are pure Qt chrome.
+        self.mode = "light"
+        self.accent = "Ocean"
+        self.font_family = "Sans Serif"
+        self.font_size = 9
+
+        self.notebook = QTabWidget()
+        self.setCentralWidget(self.notebook)
 
         self._build_toolbar()
-        self._build_notebook()
+        self._apply_stylesheet()
+        self._apply_font()
         self._show_placeholder()
 
         if initial_path:
@@ -909,12 +1014,12 @@ class ReportApp(tk.Tk):
                 if logs:
                     self.load_log(logs if len(logs) > 1 else logs[0])
                 else:
-                    messagebox.showerror("No logs found", f"No .BIN log files were found in:\n{initial_path}")
+                    QMessageBox.critical(self, "No logs found", f"No .BIN log files were found in:\n{initial_path}")
             elif os.path.isfile(initial_path):
                 self.load_log(initial_path)
             else:
-                messagebox.showerror(
-                    "Path not found",
+                QMessageBox.critical(
+                    self, "Path not found",
                     f"Could not find:\n{initial_path}\n\n"
                     "If the folder or file name contains spaces, quote it, e.g.:\n"
                     '  python3 ardupilot_log_report.py "path/with spaces/APM/LOGS"',
@@ -923,48 +1028,136 @@ class ReportApp(tk.Tk):
             # Nothing is auto-loaded from the filesystem: the user picks the
             # folder explicitly, so the tool never has to guess at (or silently
             # read) files the user didn't point it at.
-            self.after(150, self.on_select_folder)
+            QTimer.singleShot(150, self.on_select_folder)
 
     def _build_toolbar(self):
-        bar = ttk.Frame(self)
-        bar.pack(side=tk.TOP, fill=tk.X, padx=6, pady=6)
+        bar = QToolBar("Main")
+        bar.setMovable(False)
+        self.addToolBar(bar)
 
-        ttk.Button(bar, text="Select Folder...", command=self.on_select_folder).pack(side=tk.LEFT)
-        ttk.Button(bar, text="Open File(s)...", command=self.on_open).pack(side=tk.LEFT, padx=(6, 0))
-        ttk.Button(bar, text="Save as PDF", command=self.on_save_pdf).pack(side=tk.LEFT, padx=(6, 0))
+        btn_folder = QPushButton("Select Folder...")
+        btn_folder.clicked.connect(self.on_select_folder)
+        bar.addWidget(btn_folder)
 
-        ttk.Checkbutton(bar, text="Crop to flight only (arm-disarm)", variable=self.crop_var,
-                        command=self.on_crop_toggle).pack(side=tk.LEFT, padx=(18, 0))
+        btn_open = QPushButton("Open File(s)...")
+        btn_open.clicked.connect(self.on_open)
+        bar.addWidget(btn_open)
 
-        ttk.Label(bar, text="Log:").pack(side=tk.LEFT, padx=(18, 4))
-        self.log_choice = ttk.Combobox(bar, state="readonly", width=28)
-        self.log_choice.pack(side=tk.LEFT)
-        self.log_choice.bind("<<ComboboxSelected>>", self.on_choice_selected)
+        btn_pdf = QPushButton("Save as PDF")
+        btn_pdf.clicked.connect(self.on_save_pdf)
+        bar.addWidget(btn_pdf)
 
-        self.status_var = tk.StringVar(value="No log loaded.")
-        ttk.Label(bar, textvariable=self.status_var, foreground=INK2).pack(side=tk.LEFT, padx=16)
+        bar.addSeparator()
 
-    def _build_notebook(self):
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        self.crop_check = QCheckBox("Crop to flight only (arm-disarm)")
+        self.crop_check.setChecked(True)
+        self.crop_check.stateChanged.connect(self.on_crop_toggle)
+        bar.addWidget(self.crop_check)
+
+        bar.addSeparator()
+
+        bar.addWidget(QLabel("Log:"))
+        self.log_choice = QComboBox()
+        self.log_choice.setMinimumWidth(220)
+        self.log_choice.currentTextChanged.connect(self.on_choice_selected)
+        bar.addWidget(self.log_choice)
+
+        bar.addSeparator()
+
+        bar.addWidget(QLabel("Mode:"))
+        self.mode_choice = QComboBox()
+        self.mode_choice.addItems(["Light", "Dark"])
+        self.mode_choice.currentTextChanged.connect(self.on_mode_changed)
+        bar.addWidget(self.mode_choice)
+
+        bar.addWidget(QLabel("Scheme:"))
+        self.accent_choice = QComboBox()
+        self.accent_choice.addItems(list(ACCENT_THEMES.keys()))
+        self.accent_choice.currentTextChanged.connect(self.on_accent_changed)
+        bar.addWidget(self.accent_choice)
+
+        bar.addWidget(QLabel("Font:"))
+        self.font_choice = QComboBox()
+        self.font_choice.addItems(list(FONT_FAMILIES.keys()))
+        self.font_choice.currentTextChanged.connect(self.on_font_changed)
+        bar.addWidget(self.font_choice)
+
+        self.size_spin = QSpinBox()
+        self.size_spin.setRange(7, 16)
+        self.size_spin.setValue(self.font_size)
+        self.size_spin.setSuffix(" pt")
+        self.size_spin.valueChanged.connect(self.on_font_size_changed)
+        bar.addWidget(self.size_spin)
+
+        bar.addSeparator()
+
+        self.status_label = QLabel("No log loaded.")
+        self.status_label.setObjectName("status")
+        bar.addWidget(self.status_label)
+
+    def _apply_stylesheet(self):
+        accent = ACCENT_THEMES[self.accent][self.mode]
+        self.setStyleSheet(build_stylesheet(self.mode, accent))
+
+    def _apply_font(self):
+        family, style_hint = FONT_FAMILIES[self.font_family]
+        font = QFont(family)
+        font.setStyleHint(style_hint)
+        font.setPointSize(self.font_size + 1)
+        app = QApplication.instance()
+        app.setFont(font)
+        for w in self.findChildren(QWidget):
+            w.setFont(font)
+        self.setFont(font)
+
+    def _rebuild_pages(self):
+        """Re-render figures from the already-parsed log under the current
+        chart theme/font - no re-parsing of the log file(s) needed."""
+        if self.log is None:
+            return
+        self.pages, self.flags = build_report(self.log)
+        self._populate_tabs()
+
+    def on_mode_changed(self, text):
+        self.mode = text.lower()
+        apply_chart_theme(self.mode, self.font_family, self.font_size)
+        self._apply_stylesheet()
+        self._rebuild_pages()
+
+    def on_accent_changed(self, text):
+        self.accent = text
+        self._apply_stylesheet()
+
+    def on_font_changed(self, text):
+        self.font_family = text
+        apply_chart_theme(self.mode, self.font_family, self.font_size)
+        self._apply_font()
+        self._rebuild_pages()
+
+    def on_font_size_changed(self, value):
+        self.font_size = value
+        apply_chart_theme(self.mode, self.font_family, self.font_size)
+        self._apply_font()
+        self._rebuild_pages()
 
     def _show_placeholder(self):
-        for tab_id in self.notebook.tabs():
-            self.notebook.forget(tab_id)
-        frame = ttk.Frame(self.notebook)
-        self.notebook.add(frame, text="Start")
-        msg = ("Click \"Select Folder...\" and choose the folder that contains your\n"
-               "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder).\n\n"
-               "All .BIN files found there are merged into one timeline. By default\n"
-               "it's cropped to the longest continuous armed period (flight-only); untick\n"
-               "\"Crop to flight only\" in the toolbar to benchmark the full log instead.")
-        tk.Label(frame, text=msg, justify=tk.LEFT, fg=INK2, bg=SURFACE, font=("", 11)).pack(padx=30, pady=30, anchor="w")
+        self._clear_tabs()
+        frame = QWidget()
+        layout = QVBoxLayout(frame)
+        msg = QLabel(
+            "Click \"Select Folder...\" and choose the folder that contains your\n"
+            "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder).\n\n"
+            "All .BIN files found there are merged into one timeline. By default\n"
+            "it's cropped to the longest continuous armed period (flight-only); untick\n"
+            "\"Crop to flight only\" in the toolbar to benchmark the full log instead."
+        )
+        layout.addWidget(msg, alignment=Qt.AlignmentFlag.AlignTop)
+        layout.addStretch()
+        self.notebook.addTab(frame, "Start")
 
     def on_select_folder(self):
-        directory = filedialog.askdirectory(
-            title="Select folder containing ArduPilot .BIN logs",
-            initialdir=self.current_dir,
-            mustexist=True,
+        directory = QFileDialog.getExistingDirectory(
+            self, "Select folder containing ArduPilot .BIN logs", self.current_dir,
         )
         if not directory:
             return
@@ -978,7 +1171,7 @@ class ReportApp(tk.Tk):
                     directory = d
                     break
         if not logs:
-            messagebox.showinfo("No logs found", f"No .BIN log files were found in:\n{directory}")
+            QMessageBox.information(self, "No logs found", f"No .BIN log files were found in:\n{directory}")
             return
         self.current_dir = directory
         self.load_log(logs if len(logs) > 1 else logs[0])
@@ -988,18 +1181,21 @@ class ReportApp(tk.Tk):
         files = discover_logs_in_dir(directory)
         names = [os.path.basename(f) for f in files]
         values = ([MERGED_LABEL] if len(files) > 1 else []) + names
-        self.log_choice["values"] = values
+
+        self.log_choice.blockSignals(True)
+        self.log_choice.clear()
+        self.log_choice.addItems(values)
         if self.log:
             if len(self.log.paths) > 1:
-                self.log_choice.set(MERGED_LABEL)
+                self.log_choice.setCurrentText(MERGED_LABEL)
             else:
                 base = os.path.basename(self.log.path)
                 if base in names:
-                    self.log_choice.set(base)
+                    self.log_choice.setCurrentText(base)
+        self.log_choice.blockSignals(False)
         self._choice_dir = directory
 
-    def on_choice_selected(self, _event):
-        name = self.log_choice.get()
+    def on_choice_selected(self, name):
         if not name:
             return
         if name == MERGED_LABEL:
@@ -1011,10 +1207,9 @@ class ReportApp(tk.Tk):
         self.load_log(path)
 
     def on_open(self):
-        paths = filedialog.askopenfilenames(
-            title="Open ArduPilot dataflash log(s) - select multiple to merge one flight",
-            initialdir=self.current_dir,
-            filetypes=[("ArduPilot log", "*.bin *.BIN"), ("All files", "*.*")],
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open ArduPilot dataflash log(s) - select multiple to merge one flight",
+            self.current_dir, "ArduPilot log (*.bin *.BIN);;All files (*)",
         )
         if paths:
             self.load_log(sorted(paths, key=_log_number) if len(paths) > 1 else paths[0])
@@ -1026,14 +1221,14 @@ class ReportApp(tk.Tk):
     def load_log(self, path_or_paths):
         paths = [path_or_paths] if isinstance(path_or_paths, str) else list(path_or_paths)
         label = f"{len(paths)} logs" if len(paths) > 1 else os.path.basename(paths[0])
-        self.status_var.set(f"Parsing {label} ...")
-        self.update_idletasks()
+        self.status_label.setText(f"Parsing {label} ...")
+        QApplication.processEvents()
         try:
-            log = LogData(paths, crop_to_flight=self.crop_var.get())
+            log = LogData(paths, crop_to_flight=self.crop_check.isChecked())
             pages, flags = build_report(log)
         except Exception as exc:
-            messagebox.showerror("Failed to parse log", str(exc))
-            self.status_var.set("Failed to parse log.")
+            QMessageBox.critical(self, "Failed to parse log", str(exc))
+            self.status_label.setText("Failed to parse log.")
             return
 
         self.log, self.pages, self.flags = log, pages, flags
@@ -1045,42 +1240,49 @@ class ReportApp(tk.Tk):
         crop_note = ""
         if log.flight_window:
             crop_note = f" (cropped from {fmt_seconds(log.logged_duration_s)} logged)"
-        self.status_var.set(
+        self.status_label.setText(
             f"{label}  |  {log.vehicle or 'Unknown vehicle'}  |  "
             f"flight {fmt_seconds(log.duration_s)}{crop_note}  |  {n_flags} flag(s) raised"
         )
 
+    def _clear_tabs(self):
+        while self.notebook.count():
+            w = self.notebook.widget(0)
+            self.notebook.removeTab(0)
+            w.deleteLater()
+
     def _populate_tabs(self):
-        for tab_id in self.notebook.tabs():
-            self.notebook.forget(tab_id)
+        self._clear_tabs()
         for title, fig in self.pages:
-            frame = ttk.Frame(self.notebook)
-            self.notebook.add(frame, text=title)
-            canvas = FigureCanvasTkAgg(fig, master=frame)
+            frame = QWidget()
+            layout = QVBoxLayout(frame)
+            layout.setContentsMargins(0, 0, 0, 0)
+            canvas = FigureCanvasQTAgg(fig)
+            toolbar = NavigationToolbar2QT(canvas, frame)
+            layout.addWidget(toolbar)
+            layout.addWidget(canvas)
             canvas.draw()
-            toolbar = NavigationToolbar2Tk(canvas, frame)
-            toolbar.update()
-            canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+            self.notebook.addTab(frame, title)
 
     def on_save_pdf(self):
         if not self.log:
-            messagebox.showinfo("No log loaded", "Open a log file first.")
+            QMessageBox.information(self, "No log loaded", "Open a log file first.")
             return
         default_name = os.path.splitext(os.path.basename(self.log.path))[0] + "_report.pdf"
-        path = filedialog.asksaveasfilename(
-            title="Save flight report as PDF",
-            defaultextension=".pdf",
-            initialfile=default_name,
-            filetypes=[("PDF document", "*.pdf")],
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save flight report as PDF", os.path.join(self.current_dir, default_name),
+            "PDF document (*.pdf)",
         )
         if not path:
             return
+        if not path.lower().endswith(".pdf"):
+            path += ".pdf"
         try:
             self._export_pdf(path)
         except Exception as exc:
-            messagebox.showerror("Failed to save PDF", str(exc))
+            QMessageBox.critical(self, "Failed to save PDF", str(exc))
             return
-        messagebox.showinfo("Saved", f"Report saved to:\n{path}")
+        QMessageBox.information(self, "Saved", f"Report saved to:\n{path}")
 
     def _export_pdf(self, path):
         with PdfPages(path) as pdf:
@@ -1125,8 +1327,10 @@ def _resolve_cli_path(argv):
 
 def main():
     initial = _resolve_cli_path(sys.argv)
-    app = ReportApp(initial_path=initial)
-    app.mainloop()
+    app = QApplication(sys.argv)
+    window = ReportApp(initial_path=initial)
+    window.show()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
