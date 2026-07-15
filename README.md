@@ -25,16 +25,20 @@ readable, illustrated flight report - with a GUI preview and a one-click
 - Exports the whole report (including every events-table page) to a single
   PDF.
 
+- Toolbar controls for Light/Dark mode, a Color scheme accent (Ocean/Ember/
+  Amethyst), and a font family/size picker.
+- A **Crop to flight only** toggle: on by default (flight-only debugging); untick
+  it to keep the full merged log, armed or not, for ground-bench benchmarking.
+
 ## Requirements
 
 - Python 3.9+
-- [`pymavlink`](https://pypi.org/project/pymavlink/), `numpy`, `matplotlib`
-- `tkinter` (ships with most Python installs; on Debian/Ubuntu: `sudo apt install python3-tk`)
+- [`pymavlink`](https://pypi.org/project/pymavlink/), `numpy`, `matplotlib`, `PySide6`
 
 Install the Python dependencies:
 
 ```bash
-pip install pymavlink numpy matplotlib
+pip install pymavlink numpy matplotlib PySide6
 ```
 
 ## Usage
