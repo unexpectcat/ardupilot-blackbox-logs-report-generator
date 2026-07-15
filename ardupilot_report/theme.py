@@ -33,9 +33,9 @@ CATEGORICAL_ORDER = ("blue", "aqua", "green", "violet", "red", "magenta", "orang
 # Qt chrome (page plane / panel / border), from palette.md's chart-chrome-&-ink table.
 CHROME_THEMES = {
     "light": {"page": "#f9f9f7", "panel": "#fcfcfb", "ink": "#0b0b0b", "ink2": "#52514e",
-              "muted": "#898781", "border": "rgba(11,11,11,0.14)"},
+              "muted": "#898781", "border": "rgba(11,11,11,0.14)", "border_faint": "rgba(11,11,11,0.08)"},
     "dark": {"page": "#0d0d0d", "panel": "#1a1a19", "ink": "#ffffff", "ink2": "#c3c2b7",
-             "muted": "#898781", "border": "rgba(255,255,255,0.14)"},
+             "muted": "#898781", "border": "rgba(255,255,255,0.14)", "border_faint": "rgba(255,255,255,0.08)"},
 }
 # Accent choices, each pulled straight from the validated categorical hues above
 # (never an invented color) and checked for >=3:1 contrast against both surfaces.
@@ -127,19 +127,19 @@ def build_stylesheet(mode, accent):
                 spacing: 8px; padding: 6px; }}
     QToolBar#mainToolbar {{ background: {toolbar_bg}; border-bottom: 2px solid {accent}; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; background: transparent; }}
-    QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
+    QPushButton {{ background: transparent; color: {c['ink']}; border: 1px solid transparent;
                    border-radius: 6px; padding: 6px 14px; }}
-    QPushButton:hover {{ background: {hover_bg}; }}
-    QPushButton:pressed {{ background: {accent}; color: white; }}
+    QPushButton:hover {{ background: {hover_bg}; border: 1px solid {c['border_faint']}; }}
+    QPushButton:pressed {{ background: {accent}; color: white; border: 1px solid {accent}; }}
     QPushButton#stepBtn {{ padding: 4px 10px; font-weight: 600; }}
-    QComboBox, QSpinBox {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
+    QComboBox, QSpinBox {{ background: transparent; color: {c['ink']}; border: 1px solid transparent;
                             padding: 4px 8px; min-height: 18px; }}
     QSpinBox {{ border-radius: 6px; }}
     QComboBox {{
         border-top-left-radius: 6px; border-bottom-left-radius: 6px;
         border-top-right-radius: 0; border-bottom-right-radius: 0;
     }}
-    QComboBox:hover, QSpinBox:hover {{ background: {hover_bg}; }}
+    QComboBox:hover, QSpinBox:hover {{ background: {hover_bg}; border: 1px solid {c['border_faint']}; }}
     QComboBox QAbstractItemView {{ background: {c['panel']}; color: {c['ink']}; selection-background-color: {accent};
                                     selection-color: white; outline: none; }}
     QCheckBox {{ color: {c['ink']}; spacing: 6px; background: transparent; }}
