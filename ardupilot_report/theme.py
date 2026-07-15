@@ -123,22 +123,23 @@ def build_stylesheet(mode, accent):
     QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                 spacing: 8px; padding: 6px; }}
     QToolBar#mainToolbar {{ background: {toolbar_bg}; border-bottom: 2px solid {accent}; }}
-    QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; }}
+    QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; background: transparent; }}
     QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
-                   border-radius: 6px; padding: 6px 14px; }}
+                   border-radius: 0; padding: 6px 14px; }}
     QPushButton:hover {{ border: 1px solid {accent}; color: {accent}; }}
     QPushButton:pressed {{ background: {accent}; color: white; }}
+    QPushButton#stepBtn {{ padding: 4px 10px; font-weight: 600; }}
     QComboBox, QSpinBox {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
-                            border-radius: 6px; padding: 4px 8px; min-height: 18px; }}
+                            border-radius: 0; padding: 4px 8px; min-height: 18px; }}
     QComboBox:hover, QSpinBox:hover {{ border: 1px solid {accent}; }}
     QComboBox QAbstractItemView {{ background: {c['panel']}; color: {c['ink']}; selection-background-color: {accent};
                                     selection-color: white; outline: none; }}
-    QCheckBox {{ color: {c['ink']}; spacing: 6px; }}
-    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border']}; border-radius: 3px;
+    QCheckBox {{ color: {c['ink']}; spacing: 6px; background: transparent; }}
+    QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid {c['border']}; border-radius: 0;
                              background: {c['panel']}; }}
     QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent}; }}
     QCheckBox::indicator:hover {{ border: 1px solid {accent}; }}
-    QLabel {{ color: {c['ink2']}; }}
+    QLabel {{ color: {c['ink2']}; background: transparent; }}
     QLabel#status {{ color: {c['ink2']}; padding-left: 8px; }}
     QTabWidget::pane {{ border-top: 1px solid {c['border']}; background: {c['panel']}; }}
     QTabBar::tab {{ background: transparent; color: {c['ink2']}; padding: 8px 18px;

@@ -9,8 +9,8 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QToolBar, QPushButton,
-    QCheckBox, QComboBox, QLabel, QSpinBox, QTabWidget, QFileDialog,
-    QMessageBox,
+    QCheckBox, QComboBox, QLabel, QSpinBox, QAbstractSpinBox, QTabWidget,
+    QFileDialog, QMessageBox,
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -43,6 +43,13 @@ class ReportApp(QMainWindow):
 
         self.notebook = QTabWidget()
         self.setCentralWidget(self.notebook)
+
+        # Rebuilding every figure on each font-size tick is expensive; while the
+        # spinbox is being clicked/held, only the last value after a short pause
+        # actually triggers a rebuild (the toolbar font itself still updates live).
+        self._font_size_timer = QTimer(self)
+        self._font_size_timer.setSingleShot(True)
+        self._font_size_timer.timeout.connect(self._commit_font_size_change)
 
         self._build_toolbar()
         self._apply_stylesheet()
@@ -130,8 +137,20 @@ class ReportApp(QMainWindow):
         self.size_spin.setRange(7, 16)
         self.size_spin.setValue(self.font_size)
         self.size_spin.setSuffix(" pt")
+        # Native spin-button glyphs render blank/inconsistent across Qt styles once
+        # the box is restyled - use plain +/- buttons instead, which are reliable.
+        self.size_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
         self.size_spin.valueChanged.connect(self.on_font_size_changed)
+
+        btn_size_down = QPushButton("-")
+        btn_size_down.setObjectName("stepBtn")
+        btn_size_down.clicked.connect(self.size_spin.stepDown)
+        bar.addWidget(btn_size_down)
         bar.addWidget(self.size_spin)
+        btn_size_up = QPushButton("+")
+        btn_size_up.setObjectName("stepBtn")
+        btn_size_up.clicked.connect(self.size_spin.stepUp)
+        bar.addWidget(btn_size_up)
 
         bar.addSeparator()
 
@@ -180,8 +199,11 @@ class ReportApp(QMainWindow):
 
     def on_font_size_changed(self, value):
         self.font_size = value
+        self._apply_font()  # cheap - keep the toolbar responsive while spinning
+        self._font_size_timer.start(300)  # debounce the expensive figure rebuild
+
+    def _commit_font_size_change(self):
         theme.apply_chart_theme(self.mode, self.font_family, self.font_size)
-        self._apply_font()
         self._rebuild_pages()
 
     def _show_placeholder(self):
