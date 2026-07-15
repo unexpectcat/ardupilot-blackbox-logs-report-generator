@@ -93,13 +93,34 @@ def apply_chart_theme(mode, font_family="Sans Serif", font_size=9):
     })
 
 
+def _hex_to_rgb(hexcolor):
+    h = hexcolor.lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _blend(hex_a, hex_b, t):
+    """Blend hex_a toward hex_b by fraction t (0 = hex_a, 1 = hex_b)."""
+    ra, ga, ba = _hex_to_rgb(hex_a)
+    rb, gb, bb = _hex_to_rgb(hex_b)
+    r = round(ra + (rb - ra) * t)
+    g = round(ga + (gb - ga) * t)
+    b = round(ba + (bb - ba) * t)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def build_stylesheet(mode, accent):
     """Qt stylesheet for the app chrome. Chart colors are untouched by this -
     only window/toolbar/tab/button/checkbox colors follow `mode` and `accent`."""
     c = CHROME_THEMES[mode]
+    # Tint the toolbar toward the accent so it reads as a distinct band from the
+    # tab content below, and so the "color scheme" choice is visible even with
+    # no log loaded. Blended (not translucent) so it stays a flat, predictable
+    # color regardless of what's underneath.
+    tint_t = 0.22 if mode == "light" else 0.30
+    toolbar_bg = _blend(c["panel"], accent, tint_t)
     return f"""
     QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
-    QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
+    QToolBar {{ background: {toolbar_bg}; border: none; border-bottom: 2px solid {accent};
                 spacing: 8px; padding: 6px; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; }}
     QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
