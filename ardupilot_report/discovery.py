@@ -60,4 +60,21 @@ def _resolve_cli_path(argv):
     if all(os.path.exists(a) for a in expanded):
         return expanded
 
+    # Neither "it's all one spaced-out path" nor "every arg is its own valid
+    # file" panned out - a common cause is a botched unquoted attempt typed
+    # alongside an already-correct (quoted/escaped) one, e.g.
+    #   ~/Documents/foo bar ../other/foo\ bar/APM/LOGS/
+    # where the first two tokens are a stray, unquoted retry and the rest is
+    # the real, already-valid path. Try dropping leading tokens (longest
+    # remaining suffix first), then trailing tokens (longest remaining prefix
+    # first), and use the first reconstruction that actually exists.
+    for i in range(1, len(args)):
+        candidate = os.path.expanduser(" ".join(args[i:]))
+        if os.path.exists(candidate):
+            return candidate
+    for j in range(len(args) - 1, 0, -1):
+        candidate = os.path.expanduser(" ".join(args[:j]))
+        if os.path.exists(candidate):
+            return candidate
+
     return joined
