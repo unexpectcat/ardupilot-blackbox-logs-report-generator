@@ -120,8 +120,9 @@ def build_stylesheet(mode, accent):
     toolbar_bg = _blend(c["panel"], accent, tint_t)
     return f"""
     QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
-    QToolBar {{ background: {toolbar_bg}; border: none; border-bottom: 2px solid {accent};
+    QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                 spacing: 8px; padding: 6px; }}
+    QToolBar#mainToolbar {{ background: {toolbar_bg}; border-bottom: 2px solid {accent}; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; }}
     QPushButton {{ background: {c['panel']}; color: {c['ink']}; border: 1px solid {c['border']};
                    border-radius: 6px; padding: 6px 14px; }}

@@ -75,6 +75,7 @@ class ReportApp(QMainWindow):
 
     def _build_toolbar(self):
         bar = QToolBar("Main")
+        bar.setObjectName("mainToolbar")
         bar.setMovable(False)
         self.addToolBar(bar)
 
