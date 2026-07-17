@@ -8,9 +8,9 @@ import datetime
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QToolBar, QPushButton,
-    QCheckBox, QComboBox, QLabel, QSpinBox, QAbstractSpinBox, QTabWidget,
-    QFileDialog, QMessageBox,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QToolBar,
+    QPushButton, QCheckBox, QComboBox, QLabel, QSpinBox, QAbstractSpinBox,
+    QTabWidget, QFileDialog, QMessageBox,
 )
 
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
@@ -42,7 +42,22 @@ class ReportApp(QMainWindow):
         self.font_size = 9
 
         self.notebook = QTabWidget()
-        self.setCentralWidget(self.notebook)
+
+        # The accent shows as 7px bars flanking the viewport, flush against the
+        # window edges and the toolbar's own bottom accent line above them so
+        # all three form one continuous frame instead of three separate marks.
+        central = QWidget()
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self._left_accent = QWidget(objectName="accentBar")
+        self._right_accent = QWidget(objectName="accentBar")
+        self._left_accent.setFixedWidth(7)
+        self._right_accent.setFixedWidth(7)
+        layout.addWidget(self._left_accent)
+        layout.addWidget(self.notebook)
+        layout.addWidget(self._right_accent)
+        self.setCentralWidget(central)
 
         # Rebuilding every figure on each font-size tick is expensive; while the
         # spinbox is being clicked/held, only the last value after a short pause
@@ -54,31 +69,41 @@ class ReportApp(QMainWindow):
         self._build_toolbar()
         self._apply_stylesheet()
         self._apply_font()
-        self._show_placeholder()
 
         if initial_path:
-            if isinstance(initial_path, list):
-                self.load_log(initial_path)
-            elif os.path.isdir(initial_path):
-                logs = discover_logs_in_dir(initial_path)
-                if logs:
-                    self.load_log(logs if len(logs) > 1 else logs[0])
-                else:
-                    QMessageBox.critical(self, "No logs found", f"No .BIN log files were found in:\n{initial_path}")
-            elif os.path.isfile(initial_path):
-                self.load_log(initial_path)
-            else:
-                QMessageBox.critical(
-                    self, "Path not found",
-                    f"Could not find:\n{initial_path}\n\n"
-                    "If the folder or file name contains spaces, quote it, e.g.:\n"
-                    '  python3 ardupilot_log_report.py "path/with spaces/APM/LOGS"',
-                )
+            # Show the loading screen immediately and defer the actual parsing
+            # until after the window is on screen (event loop start) - so the
+            # window appears at once instead of staying invisible/frozen while
+            # a possibly-large log is parsed.
+            self._show_loading()
+            QTimer.singleShot(0, lambda: self._load_initial_path(initial_path))
         else:
+            self._show_placeholder()
             # Nothing is auto-loaded from the filesystem: the user picks the
             # folder explicitly, so the tool never has to guess at (or silently
             # read) files the user didn't point it at.
             QTimer.singleShot(150, self.on_select_folder)
+
+    def _load_initial_path(self, initial_path):
+        if isinstance(initial_path, list):
+            self.load_log(initial_path)
+        elif os.path.isdir(initial_path):
+            logs = discover_logs_in_dir(initial_path)
+            if logs:
+                self.load_log(logs if len(logs) > 1 else logs[0])
+            else:
+                QMessageBox.critical(self, "No logs found", f"No .BIN log files were found in:\n{initial_path}")
+                self._show_placeholder()
+        elif os.path.isfile(initial_path):
+            self.load_log(initial_path)
+        else:
+            QMessageBox.critical(
+                self, "Path not found",
+                f"Could not find:\n{initial_path}\n\n"
+                "If the folder or file name contains spaces, quote it, e.g.:\n"
+                '  python3 ardupilot_log_report.py "path/with spaces/APM/LOGS"',
+            )
+            self._show_placeholder()
 
     def _build_toolbar(self):
         bar = QToolBar("Main")
@@ -221,6 +246,17 @@ class ReportApp(QMainWindow):
         layout.addStretch()
         self.notebook.addTab(frame, "Start")
 
+    def _show_loading(self, message="Loading log(s)..."):
+        self._clear_tabs()
+        frame = QWidget()
+        layout = QVBoxLayout(frame)
+        label = QLabel(message)
+        label.setObjectName("loadingLabel")
+        layout.addStretch()
+        layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch()
+        self.notebook.addTab(frame, "Loading...")
+
     def on_select_folder(self):
         directory = QFileDialog.getExistingDirectory(
             self, "Select folder containing ArduPilot .BIN logs", self.current_dir,
@@ -288,6 +324,7 @@ class ReportApp(QMainWindow):
         paths = [path_or_paths] if isinstance(path_or_paths, str) else list(path_or_paths)
         label = f"{len(paths)} logs" if len(paths) > 1 else os.path.basename(paths[0])
         self.status_label.setText(f"Parsing {label} ...")
+        self._show_loading(f"Parsing {label} ...")
         QApplication.processEvents()
         try:
             log = LogData(paths, crop_to_flight=self.crop_check.isChecked())
@@ -295,6 +332,10 @@ class ReportApp(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Failed to parse log", str(exc))
             self.status_label.setText("Failed to parse log.")
+            if self.log is None:
+                self._show_placeholder()
+            else:
+                self._populate_tabs()  # fall back to the still-valid previous report
             return
 
         self.log, self.pages, self.flags = log, pages, flags

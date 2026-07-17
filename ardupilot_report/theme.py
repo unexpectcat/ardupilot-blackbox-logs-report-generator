@@ -109,7 +109,8 @@ def build_stylesheet(mode, accent):
     QMainWindow, QWidget {{ background: {c['page']}; color: {c['ink']}; }}
     QToolBar {{ background: {c['panel']}; border: none; border-bottom: 1px solid {c['border']};
                 spacing: 8px; padding: 6px; }}
-    QToolBar#mainToolbar {{ border-bottom: 7px solid {accent}; }}
+    QToolBar#mainToolbar {{ border-bottom: 5px solid {accent}; padding-bottom: 20px; }}
+    QWidget#accentBar {{ background: {accent}; border: none; }}
     QToolBar QLabel {{ color: {c['ink2']}; padding: 0 2px; background: transparent; }}
     QPushButton {{ background: transparent; color: {c['ink']}; border: 1px solid transparent;
                    border-radius: 6px; padding: 6px 14px; }}
@@ -133,8 +134,8 @@ def build_stylesheet(mode, accent):
     QCheckBox::indicator:hover {{ background: {hover_bg}; }}
     QLabel {{ color: {c['ink2']}; background: transparent; }}
     QLabel#status {{ color: {c['ink2']}; padding-left: 8px; }}
-    QTabWidget::pane {{ border-top: 1px solid {c['border']}; border-left: 7px solid {accent};
-                         background: {c['panel']}; }}
+    QLabel#loadingLabel {{ color: {c['ink2']}; font-size: 15px; }}
+    QTabWidget::pane {{ border-top: 1px solid {c['border']}; background: {c['panel']}; }}
     QTabBar::tab {{ background: transparent; color: {c['ink2']}; padding: 8px 18px;
                     border-bottom: 2px solid transparent; }}
     QTabBar::tab:selected {{ color: {c['ink']}; border-bottom: 2px solid {accent}; font-weight: 600; }}
