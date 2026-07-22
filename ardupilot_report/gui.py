@@ -173,7 +173,7 @@ class ReportApp(QMainWindow):
             if logs:
                 self.load_log(logs if len(logs) > 1 else logs[0])
             else:
-                QMessageBox.critical(self, "No logs found", f"No .BIN log files were found in:\n{initial_path}")
+                QMessageBox.critical(self, "No logs found", f"No .BIN or .tlog log files were found in:\n{initial_path}")
                 self._show_placeholder()
         elif os.path.isfile(initial_path):
             self.load_log(initial_path)
@@ -318,9 +318,10 @@ class ReportApp(QMainWindow):
         layout = QVBoxLayout(frame)
         msg = QLabel(
             "Click \"Select Folder...\" and choose the folder that contains your\n"
-            "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder).\n\n"
-            "All .BIN files found there are merged into one timeline. By default\n"
-            "it's cropped to the longest continuous armed period (flight-only); untick\n"
+            "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder)\n"
+            "or .tlog MAVLink telemetry logs.\n\n"
+            "All logs found there are merged into one timeline. By default it's\n"
+            "cropped to the longest continuous armed period (flight-only); untick\n"
             "\"Crop to flight only\" in the toolbar to benchmark the full log instead."
         )
         layout.addWidget(msg, alignment=Qt.AlignmentFlag.AlignTop)
@@ -340,7 +341,7 @@ class ReportApp(QMainWindow):
 
     def on_select_folder(self):
         directory = QFileDialog.getExistingDirectory(
-            self, "Select folder containing ArduPilot .BIN logs", self.current_dir,
+            self, "Select folder containing ArduPilot .BIN or .tlog logs", self.current_dir,
         )
         if not directory:
             return
@@ -354,7 +355,7 @@ class ReportApp(QMainWindow):
                     directory = d
                     break
         if not logs:
-            QMessageBox.information(self, "No logs found", f"No .BIN log files were found in:\n{directory}")
+            QMessageBox.information(self, "No logs found", f"No .BIN or .tlog log files were found in:\n{directory}")
             return
         self.current_dir = directory
         self.load_log(logs if len(logs) > 1 else logs[0])
@@ -391,8 +392,8 @@ class ReportApp(QMainWindow):
 
     def on_open(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Open ArduPilot dataflash log(s) - select multiple to merge one flight",
-            self.current_dir, "ArduPilot log (*.bin *.BIN);;All files (*)",
+            self, "Open ArduPilot log(s) - select multiple to merge one flight",
+            self.current_dir, "ArduPilot log (*.bin *.BIN *.tlog *.TLOG);;All files (*)",
         )
         if paths:
             self.load_log(sorted(paths, key=_log_number) if len(paths) > 1 else paths[0])

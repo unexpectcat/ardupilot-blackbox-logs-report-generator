@@ -1,16 +1,24 @@
 # ArduPilot Flight Log Report
 
 A desktop tool that turns ArduPilot dataflash logs (`.BIN` files, e.g. from the
-SD card of a Matek H743 or any other ArduPilot flight controller) into a
-readable, illustrated flight report - with a GUI preview and a one-click
-**Save as PDF**.
+SD card of a Matek H743 or any other ArduPilot flight controller) or `.tlog`
+MAVLink telemetry logs (recorded by a ground station like Mission Planner or
+QGroundControl) into a readable, illustrated flight report - with a GUI
+preview and a one-click **Save as PDF**.
 
 ## What it does
 
-- Reads one or more `.BIN` dataflash logs with [pymavlink](https://github.com/ArduPilot/pymavlink).
+- Reads one or more `.BIN` dataflash logs, or `.tlog` telemetry logs, with
+  [pymavlink](https://github.com/ArduPilot/pymavlink).
+  - `.tlog` files carry a different, coarser set of MAVLink telemetry
+    messages rather than the full dataflash message set, so some tabs/fields
+    (e.g. link-quality %, main-loop CPU load) may be sparser or unavailable
+    compared to a `.BIN` from the same flight - whatever the telemetry stream
+    didn't carry just doesn't appear, the same way it would for a `.BIN` with
+    a sensor disabled.
 - ArduPilot starts a new log file on every reboot/power-cycle, so a single real
   flight is often split across several files. Point the tool at the folder
-  containing them and it merges every `.BIN` file into one continuous
+  containing them and it merges every log file into one continuous
   timeline, then automatically crops the result down to the single longest
   continuous **armed** period - the actual flight - discarding bench
   arm/disarm blips and ground idle time before/after it.
@@ -59,12 +67,13 @@ python3 ardupilot_log_report.py
 ```
 
 No file is read automatically - on launch (or via the **Select Folder...**
-button) a folder picker opens. Choose the folder that holds your `.BIN` logs
-(e.g. the SD card's `APM/LOGS` folder, or a local copy of it). Every `.BIN`
-file in that folder is merged and cropped as described above.
+button) a folder picker opens. Choose the folder that holds your `.BIN` or
+`.tlog` logs (e.g. the SD card's `APM/LOGS` folder, or a local copy of it, or
+wherever your ground station saves telemetry logs). Every log file in that
+folder is merged and cropped as described above.
 
-- **Select Folder...** - pick a folder; all `.BIN`/`.bin` files inside are
-  merged into one flight.
+- **Select Folder...** - pick a folder; all `.BIN`/`.bin`/`.tlog` files inside
+  are merged into one flight.
 - **Open File(s)...** - pick one specific log, or multi-select several to
   merge manually.
 - The **Log:** dropdown lets you switch between the merged view and any
@@ -75,7 +84,8 @@ You can also pass a path directly:
 
 ```bash
 python3 ardupilot_log_report.py /path/to/APM/LOGS       # merges every log in the folder
-python3 ardupilot_log_report.py /path/to/00000014.BIN   # opens a single log
+python3 ardupilot_log_report.py /path/to/00000014.BIN   # opens a single dataflash log
+python3 ardupilot_log_report.py /path/to/flight.tlog    # opens a single telemetry log
 ```
 
 ## Notes

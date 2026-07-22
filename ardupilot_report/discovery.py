@@ -22,18 +22,23 @@ def find_sd_logs_dir():
 
 
 def _log_number(p):
+    """Sort key for discovered logs: numerically-named dataflash logs (the
+    common case) sort first, in numeric order; anything else (e.g. a .tlog
+    named by timestamp) sorts after, alphabetically by filename."""
     stem = os.path.splitext(os.path.basename(p))[0]
-    return int(stem) if stem.isdigit() else -1
+    return (0, int(stem)) if stem.isdigit() else (1, os.path.basename(p).lower())
 
 
 def discover_logs_in_dir(directory):
-    """All .BIN/.bin logs in a directory, in flight order (by numeric filename).
+    """All .BIN/.bin dataflash logs and .tlog telemetry logs in a directory,
+    in flight order (by numeric filename for dataflash logs).
 
     Dataflash SD cards commonly have no working RTC, so every file's mtime is
     identical (e.g. 1980-01-01) - filesystem "latest" is meaningless here; the
     zero-padded log number is the only reliable chronological order.
     """
-    files = glob.glob(os.path.join(directory, "*.BIN")) + glob.glob(os.path.join(directory, "*.bin"))
+    files = (glob.glob(os.path.join(directory, "*.BIN")) + glob.glob(os.path.join(directory, "*.bin")) +
+             glob.glob(os.path.join(directory, "*.tlog")) + glob.glob(os.path.join(directory, "*.TLOG")))
     return sorted(files, key=_log_number)
 
 
