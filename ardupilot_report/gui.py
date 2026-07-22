@@ -18,8 +18,89 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from . import theme
 from .logdata import LogData, fmt_seconds
-from .figures import build_report, events_pdf_pages
+from .figures import build_report, events_pdf_pages, summary_info_lines
+from .analysis import timestamped_categories, untimestamped_flags
+from .summary_map import build_map_figure
 from .discovery import find_sd_logs_dir, discover_logs_in_dir, _log_number, MERGED_LABEL, _resolve_cli_path
+
+
+class SummaryTab(QWidget):
+    """Summary tab: plain-facts header, OSM/local-position map with a
+    mode-colored trajectory and flag dots, a left sidebar to toggle flag
+    *categories* on the map (hidden by default), and a bottom panel listing
+    flags that have no single timestamp (shown by default)."""
+
+    def __init__(self, log, flags, parent=None):
+        super().__init__(parent)
+        self.log = log
+        self.flags = flags
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+
+        header = QLabel("\n".join(summary_info_lines(log)))
+        header.setWordWrap(True)
+        outer.addWidget(header)
+
+        groups = timestamped_categories(flags)
+        active_categories = set(groups)
+
+        toggle_row = QHBoxLayout()
+        self.categories_btn = QPushButton("Flag categories")
+        self.categories_btn.setCheckable(True)
+        self.categories_btn.setChecked(False)
+        self.categories_btn.toggled.connect(lambda checked: self.sidebar.setVisible(checked))
+        toggle_row.addWidget(self.categories_btn)
+        if not groups:
+            self.categories_btn.setEnabled(False)
+
+        self.other_flags_btn = QPushButton("Other flags")
+        self.other_flags_btn.setCheckable(True)
+        self.other_flags_btn.setChecked(True)
+        self.other_flags_btn.toggled.connect(lambda checked: self.bottom_panel.setVisible(checked))
+        toggle_row.addWidget(self.other_flags_btn)
+        toggle_row.addStretch()
+        outer.addLayout(toggle_row)
+
+        body = QHBoxLayout()
+        body.setSpacing(0)
+
+        self.sidebar = QWidget()
+        self.sidebar.setFixedWidth(220)
+        self.sidebar.setVisible(False)
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(6, 6, 6, 6)
+        for cat, fl_list in groups.items():
+            cb = QCheckBox(f"{cat} ({len(fl_list)})")
+            cb.setChecked(True)
+            cb.toggled.connect(lambda checked, c=cat: self._set_category_visible(c, checked))
+            sidebar_layout.addWidget(cb)
+        sidebar_layout.addStretch()
+        body.addWidget(self.sidebar)
+
+        center = QVBoxLayout()
+        center.setContentsMargins(0, 0, 0, 0)
+        self.fig, self._category_artists = build_map_figure(log, flags, active_categories)
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        nav = NavigationToolbar2QT(self.canvas, self)
+        center.addWidget(nav)
+        center.addWidget(self.canvas)
+        body.addLayout(center, stretch=1)
+        outer.addLayout(body, stretch=1)
+
+        self.bottom_panel = QWidget()
+        bottom_layout = QVBoxLayout(self.bottom_panel)
+        bottom_layout.setContentsMargins(6, 6, 6, 6)
+        for f in untimestamped_flags(flags):
+            lbl = QLabel(f"• {f.text}")
+            lbl.setWordWrap(True)
+            bottom_layout.addWidget(lbl)
+        outer.addWidget(self.bottom_panel)
+
+    def _set_category_visible(self, category, visible):
+        for artist in self._category_artists.get(category, []):
+            artist.set_visible(visible)
+        self.canvas.draw_idle()
 
 
 class ReportApp(QMainWindow):
@@ -92,7 +173,7 @@ class ReportApp(QMainWindow):
             if logs:
                 self.load_log(logs if len(logs) > 1 else logs[0])
             else:
-                QMessageBox.critical(self, "No logs found", f"No .BIN log files were found in:\n{initial_path}")
+                QMessageBox.critical(self, "No logs found", f"No .BIN or .tlog log files were found in:\n{initial_path}")
                 self._show_placeholder()
         elif os.path.isfile(initial_path):
             self.load_log(initial_path)
@@ -237,9 +318,10 @@ class ReportApp(QMainWindow):
         layout = QVBoxLayout(frame)
         msg = QLabel(
             "Click \"Select Folder...\" and choose the folder that contains your\n"
-            "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder).\n\n"
-            "All .BIN files found there are merged into one timeline. By default\n"
-            "it's cropped to the longest continuous armed period (flight-only); untick\n"
+            "ArduPilot .BIN dataflash logs (e.g. the SD card's APM/LOGS folder)\n"
+            "or .tlog MAVLink telemetry logs.\n\n"
+            "All logs found there are merged into one timeline. By default it's\n"
+            "cropped to the longest continuous armed period (flight-only); untick\n"
             "\"Crop to flight only\" in the toolbar to benchmark the full log instead."
         )
         layout.addWidget(msg, alignment=Qt.AlignmentFlag.AlignTop)
@@ -259,7 +341,7 @@ class ReportApp(QMainWindow):
 
     def on_select_folder(self):
         directory = QFileDialog.getExistingDirectory(
-            self, "Select folder containing ArduPilot .BIN logs", self.current_dir,
+            self, "Select folder containing ArduPilot .BIN or .tlog logs", self.current_dir,
         )
         if not directory:
             return
@@ -273,7 +355,7 @@ class ReportApp(QMainWindow):
                     directory = d
                     break
         if not logs:
-            QMessageBox.information(self, "No logs found", f"No .BIN log files were found in:\n{directory}")
+            QMessageBox.information(self, "No logs found", f"No .BIN or .tlog log files were found in:\n{directory}")
             return
         self.current_dir = directory
         self.load_log(logs if len(logs) > 1 else logs[0])
@@ -310,8 +392,8 @@ class ReportApp(QMainWindow):
 
     def on_open(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Open ArduPilot dataflash log(s) - select multiple to merge one flight",
-            self.current_dir, "ArduPilot log (*.bin *.BIN);;All files (*)",
+            self, "Open ArduPilot log(s) - select multiple to merge one flight",
+            self.current_dir, "ArduPilot log (*.bin *.BIN *.tlog *.TLOG);;All files (*)",
         )
         if paths:
             self.load_log(sorted(paths, key=_log_number) if len(paths) > 1 else paths[0])
@@ -343,7 +425,7 @@ class ReportApp(QMainWindow):
         self._populate_tabs()
         self._refresh_log_choice()
 
-        n_flags = sum(1 for s, _ in flags if s in ("warning", "serious", "critical"))
+        n_flags = sum(1 for f in flags if f.severity in ("warning", "serious", "critical"))
         crop_note = ""
         if log.flight_window:
             crop_note = f" (cropped from {fmt_seconds(log.logged_duration_s)} logged)"
@@ -360,6 +442,8 @@ class ReportApp(QMainWindow):
 
     def _populate_tabs(self):
         self._clear_tabs()
+        if self.log is not None:
+            self.notebook.addTab(SummaryTab(self.log, self.flags), "Summary")
         for title, fig in self.pages:
             frame = QWidget()
             layout = QVBoxLayout(frame)

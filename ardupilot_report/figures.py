@@ -51,12 +51,10 @@ def _shade_failsafe_windows(axes, log, label_ax=None):
     return True
 
 
-def build_summary(log: LogData, flags):
-    fig = Figure()
-    fig.suptitle("Flight Log Summary", fontsize=15, fontweight="bold", color=theme.INK, x=0.03, ha="left")
-    ax = fig.add_axes((0.04, 0.04, 0.92, 0.85))
-    ax.axis("off")
-
+def summary_info_lines(log: LogData):
+    """Plain-facts header lines for the Summary tab (file/vehicle/battery/etc,
+    as opposed to the automatic-check flags, which the Summary tab renders
+    separately - timestamped ones as map dots, the rest as text below it)."""
     lines = []
     if len(log.paths) > 1:
         lines.append(f"Files: {os.path.basename(log.paths[0])} .. {os.path.basename(log.paths[-1])}, "
@@ -77,31 +75,22 @@ def build_summary(log: LogData, flags):
     lines.append(f"Arm events: {n_arms}    Flight-mode changes: {n_modes}")
 
     if log.has("BAT", "Volt"):
-        lines.append(f"Battery: {np.nanmin(log.col('BAT','Volt')):.2f} - {np.nanmax(log.col('BAT','Volt')):.2f} V, "
-                      f"peak current {np.nanmax(log.col('BAT','Curr')):.1f} A" if log.has("BAT", "Curr") else "")
+        line = f"Battery: {np.nanmin(log.col('BAT','Volt')):.2f} - {np.nanmax(log.col('BAT','Volt')):.2f} V"
+        if log.has("BAT", "Curr"):
+            line += f", peak current {np.nanmax(log.col('BAT','Curr')):.1f} A"
+        lines.append(line)
     if log.has("CTUN", "Roll"):
         lines.append(f"Max roll: {np.nanmax(np.abs(log.col('CTUN','Roll'))):.1f} deg    "
                       f"Max pitch: {np.nanmax(np.abs(log.col('CTUN','Pitch'))):.1f} deg")
+    return lines
 
-    y = 0.97
-    for line in lines:
-        if not line:
-            continue
-        ax.text(0, y, line, fontsize=11, color=theme.INK, transform=ax.transAxes, va="top")
-        y -= 0.065
 
-    y -= 0.03
-    ax.text(0, y, "Automatic checks", fontsize=12, fontweight="bold", color=theme.INK, transform=ax.transAxes, va="top")
-    y -= 0.07
-    for sev, text in flags:
-        color = theme.STATUS.get(sev, theme.INK2)
-        marker = {"good": "OK", "warning": "!", "serious": "!!", "critical": "!!!"}.get(sev, "-")
-        ax.text(0, y, marker, fontsize=11, fontweight="bold", color=color, transform=ax.transAxes, va="top")
-        ax.text(0.06, y, text, fontsize=10.5, color=theme.INK, transform=ax.transAxes, va="top", wrap=True)
-        y -= 0.06
-        if y < 0.02:
-            break
-    return "Summary", fig
+def mode_color_map(log: LogData):
+    """name -> color, one categorical hue per distinct flight mode, in sorted-name
+    order. Shared by the Flight Modes timeline and the Summary map trajectory so
+    a mode reads as the same color on both."""
+    names = sorted({name for name, _, _ in mode_intervals(log)})
+    return {n: theme.LINE_CATEGORICAL[i % len(theme.LINE_CATEGORICAL)] for i, n in enumerate(names)}
 
 
 def build_modes(log: LogData):
@@ -113,13 +102,13 @@ def build_modes(log: LogData):
     fs_row_name = "RC FAILSAFE"
     fs_intervals = [(s, max(e, s + 0.5)) for s, e in rc_failsafe_windows(log) if is_armed_at(armed_ivals, s)]
 
+    colors = mode_color_map(log)
     fig = Figure()
     ax = fig.add_axes((0.20, 0.15, 0.76, 0.75))
     names = sorted({name for name, _, _ in intervals})
     y_of = {n: i for i, n in enumerate(names)}
     for name, s, e in intervals:
-        color = theme.LINE_CATEGORICAL[y_of[name] % len(theme.LINE_CATEGORICAL)]
-        ax.barh(y_of[name], e - s, left=s, height=0.6, color=color, edgecolor="none")
+        ax.barh(y_of[name], e - s, left=s, height=0.6, color=colors[name], edgecolor="none")
 
     if fs_intervals:
         fs_row = len(names)
@@ -471,9 +460,14 @@ BUILDERS = [
 
 
 def build_report(log: LogData):
-    """Returns ordered list of (title, Figure) for on-screen display."""
+    """Returns ordered list of (title, Figure) for on-screen display.
+
+    The Summary tab is not in this list - it's a custom Qt widget (map +
+    toggle panels) built directly by gui.py from `log` and `flags`, not a
+    plain Figure like every other tab here.
+    """
     flags = analyze_flags(log)
-    pages = [build_summary(log, flags)]
+    pages = []
     for builder in BUILDERS:
         result = builder(log)
         if result is not None:
