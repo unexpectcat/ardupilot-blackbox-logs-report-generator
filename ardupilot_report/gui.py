@@ -18,8 +18,89 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 from . import theme
 from .logdata import LogData, fmt_seconds
-from .figures import build_report, events_pdf_pages
+from .figures import build_report, events_pdf_pages, summary_info_lines
+from .analysis import timestamped_categories, untimestamped_flags
+from .summary_map import build_map_figure
 from .discovery import find_sd_logs_dir, discover_logs_in_dir, _log_number, MERGED_LABEL, _resolve_cli_path
+
+
+class SummaryTab(QWidget):
+    """Summary tab: plain-facts header, OSM/local-position map with a
+    mode-colored trajectory and flag dots, a left sidebar to toggle flag
+    *categories* on the map (hidden by default), and a bottom panel listing
+    flags that have no single timestamp (shown by default)."""
+
+    def __init__(self, log, flags, parent=None):
+        super().__init__(parent)
+        self.log = log
+        self.flags = flags
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(8, 8, 8, 8)
+
+        header = QLabel("\n".join(summary_info_lines(log)))
+        header.setWordWrap(True)
+        outer.addWidget(header)
+
+        groups = timestamped_categories(flags)
+        active_categories = set(groups)
+
+        toggle_row = QHBoxLayout()
+        self.categories_btn = QPushButton("Flag categories")
+        self.categories_btn.setCheckable(True)
+        self.categories_btn.setChecked(False)
+        self.categories_btn.toggled.connect(lambda checked: self.sidebar.setVisible(checked))
+        toggle_row.addWidget(self.categories_btn)
+        if not groups:
+            self.categories_btn.setEnabled(False)
+
+        self.other_flags_btn = QPushButton("Other flags")
+        self.other_flags_btn.setCheckable(True)
+        self.other_flags_btn.setChecked(True)
+        self.other_flags_btn.toggled.connect(lambda checked: self.bottom_panel.setVisible(checked))
+        toggle_row.addWidget(self.other_flags_btn)
+        toggle_row.addStretch()
+        outer.addLayout(toggle_row)
+
+        body = QHBoxLayout()
+        body.setSpacing(0)
+
+        self.sidebar = QWidget()
+        self.sidebar.setFixedWidth(220)
+        self.sidebar.setVisible(False)
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(6, 6, 6, 6)
+        for cat, fl_list in groups.items():
+            cb = QCheckBox(f"{cat} ({len(fl_list)})")
+            cb.setChecked(True)
+            cb.toggled.connect(lambda checked, c=cat: self._set_category_visible(c, checked))
+            sidebar_layout.addWidget(cb)
+        sidebar_layout.addStretch()
+        body.addWidget(self.sidebar)
+
+        center = QVBoxLayout()
+        center.setContentsMargins(0, 0, 0, 0)
+        self.fig, self._category_artists = build_map_figure(log, flags, active_categories)
+        self.canvas = FigureCanvasQTAgg(self.fig)
+        nav = NavigationToolbar2QT(self.canvas, self)
+        center.addWidget(nav)
+        center.addWidget(self.canvas)
+        body.addLayout(center, stretch=1)
+        outer.addLayout(body, stretch=1)
+
+        self.bottom_panel = QWidget()
+        bottom_layout = QVBoxLayout(self.bottom_panel)
+        bottom_layout.setContentsMargins(6, 6, 6, 6)
+        for f in untimestamped_flags(flags):
+            lbl = QLabel(f"• {f.text}")
+            lbl.setWordWrap(True)
+            bottom_layout.addWidget(lbl)
+        outer.addWidget(self.bottom_panel)
+
+    def _set_category_visible(self, category, visible):
+        for artist in self._category_artists.get(category, []):
+            artist.set_visible(visible)
+        self.canvas.draw_idle()
 
 
 class ReportApp(QMainWindow):
@@ -343,7 +424,7 @@ class ReportApp(QMainWindow):
         self._populate_tabs()
         self._refresh_log_choice()
 
-        n_flags = sum(1 for s, _ in flags if s in ("warning", "serious", "critical"))
+        n_flags = sum(1 for f in flags if f.severity in ("warning", "serious", "critical"))
         crop_note = ""
         if log.flight_window:
             crop_note = f" (cropped from {fmt_seconds(log.logged_duration_s)} logged)"
@@ -360,6 +441,8 @@ class ReportApp(QMainWindow):
 
     def _populate_tabs(self):
         self._clear_tabs()
+        if self.log is not None:
+            self.notebook.addTab(SummaryTab(self.log, self.flags), "Summary")
         for title, fig in self.pages:
             frame = QWidget()
             layout = QVBoxLayout(frame)

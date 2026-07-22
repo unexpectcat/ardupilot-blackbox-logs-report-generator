@@ -17,6 +17,17 @@ readable, illustrated flight report - with a GUI preview and a one-click
 - Builds a tabbed report: Summary, Flight Modes, Altitude & Airspeed,
   Attitude, PID Tuning, Battery & Power, RC & Servos, RC Link (ELRS),
   Vibration & IMU, System Health, GPS Track, and a full Events/Errors table.
+- The **Summary** tab shows a map with the flight trajectory colored per
+  flight mode, drawn over live OpenStreetMap tiles fetched for the flight's
+  bounding box. Automatic-check flags that have a timestamp (e.g.
+  "Accelerometer clipping detected") appear as dots on the map with a
+  leader-lined label; a **Flag categories** toggle opens a sidebar to
+  show/hide each category by checkbox. Flags with no single timestamp (e.g.
+  a battery voltage range for the whole flight) are listed in a plain text
+  panel below the map, shown by default. If the aircraft has no GPS at all,
+  the map falls back to the local EKF-relative position estimate with no
+  basemap; if the OSM tile fetch fails (offline, blocked, timeout) the map
+  still draws the trajectory and flags on a plain themed background.
 - Runs automatic checks and calls out anything worth a human's attention:
   elevated/critical vibration, accelerometer clipping, battery voltage vs.
   reported-remaining-capacity mismatches, missing GPS/airspeed data, and RC
@@ -73,3 +84,10 @@ python3 ardupilot_log_report.py /path/to/00000014.BIN   # opens a single log
   a folder or file - the tool does not look for SD cards or logs on its own.
 - Generated PDF reports contain your flight telemetry and are not written
   anywhere by default beyond the location you choose in the save dialog.
+- The Summary tab's map fetches basemap tiles from `tile.openstreetmap.org`
+  over the network whenever a log has GPS data - this is the only network
+  access the tool makes. It's best-effort: a fetch failure just falls back to
+  a plain themed background, and tiles are cached in-process so switching
+  Light/Dark/font/accent doesn't re-fetch them. No new pip dependency was
+  added for this - tiles are fetched with the standard library and decoded
+  with matplotlib's own PNG reader.
