@@ -6,16 +6,31 @@ MAVLink telemetry logs (recorded by a ground station like Mission Planner or
 QGroundControl) into a readable, illustrated flight report - with a GUI
 preview and a one-click **Save as PDF**.
 
+## Screenshots
+
+> Placeholders below - real screenshots coming soon.
+
+| Trajectory map | Flag categories & dots |
+| --- | --- |
+| ![Summary tab: OSM trajectory map](docs/screenshots/summary-map.png) | ![Summary tab: flag categories and dots](docs/screenshots/summary-flags.png) |
+
+The **Summary** tab is the first thing you see for any loaded log: a mode-colored
+flight trajectory over a live OpenStreetMap basemap, with dots for any
+timestamped automatic-check flags (e.g. accelerometer clipping, an in-flight
+RC failsafe) and a toggleable sidebar to show/hide each flag category.
+
 ## What it does
 
-- Reads one or more `.BIN` dataflash logs, or `.tlog` telemetry logs, with
-  [pymavlink](https://github.com/ArduPilot/pymavlink).
-  - `.tlog` files carry a different, coarser set of MAVLink telemetry
-    messages rather than the full dataflash message set, so some tabs/fields
-    (e.g. link-quality %, main-loop CPU load) may be sparser or unavailable
-    compared to a `.BIN` from the same flight - whatever the telemetry stream
-    didn't carry just doesn't appear, the same way it would for a `.BIN` with
-    a sensor disabled.
+- Reads two log formats with [pymavlink](https://github.com/ArduPilot/pymavlink):
+  - **`.BIN` dataflash logs** - the full-detail logs ArduPilot itself writes
+    to the flight controller's SD card.
+  - **`.tlog` MAVLink telemetry logs** - the logs a ground station (Mission
+    Planner, QGroundControl, ...) records from the live telemetry link.
+    These carry a different, coarser set of MAVLink messages rather than the
+    full dataflash message set, so some tabs/fields (e.g. link-quality %,
+    main-loop CPU load) may be sparser or unavailable compared to a `.BIN`
+    from the same flight - whatever the telemetry stream didn't carry just
+    doesn't appear, the same way it would for a `.BIN` with a sensor disabled.
 - ArduPilot starts a new log file on every reboot/power-cycle, so a single real
   flight is often split across several files. Point the tool at the folder
   containing them and it merges every log file into one continuous
